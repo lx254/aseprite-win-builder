@@ -1,0 +1,64 @@
+name: Test Env
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Windows x64
+    runs-on: windows-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Get latest Aseprite release
+        id: version
+        shell: bash
+        run: |
+          VERSION=$(curl -s https://api.github.com/repos/aseprite/aseprite/releases/latest | jq -r .tag_name)
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "ASEPRITE_VERSION=$VERSION" >> "$GITHUB_ENV"
+          echo "Latest Aseprite version: $VERSION"
+
+      - name: step2
+        shell: bash
+        run: |
+          echo "${{ steps.version.outputs.version }}"
+
+      - name: Prepare test directory
+        shell: pwsh
+        run: |
+          New-Item `
+            -ItemType Directory `
+            -Force `
+            -Path "aseprite/build/bin"
+
+      - name: Copy OpenSSL DLL
+        shell: pwsh
+        run: |
+         Copy-Item `
+          "C:\Program Files\OpenSSL\bin\libcrypto-3-x64.dll" `
+          "aseprite/build/bin/libcrypto-3-x64.dll"
+
+      - name: Verify OpenSSL DLL
+        shell: pwsh
+        run: |
+          $target = "aseprite/build/bin/libcrypto-3-x64.dll"
+
+          if (-not (Test-Path $target)) {
+            throw "DLL copy failed: $target does not exist"
+          }
+
+          $file = Get-Item $target
+
+          Write-Host "DLL copied successfully."
+          Write-Host "Path: $($file.FullName)"
+          Write-Host "Size: $($file.Length) bytes"
+          Write-Host "LastWriteTime: $($file.LastWriteTime)"
+
+      - name: Find OpenSSL DLL
+        shell: pwsh
+        run: |
+         Get-ChildItem "C:\Program Files\OpenSSL" `
+         -Recurse `
+         -Filter "libcrypto-3-x64.dll" |
+         Select-Object -ExpandProperty FullName
