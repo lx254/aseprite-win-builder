@@ -1,0 +1,161 @@
+name: Build Aseprite for Windows
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Windows x64
+    runs-on: windows-latest
+    timeout-minutes: 30
+
+    steps:
+      # ------------------------------------------------------------
+      # 1. Checkout Aseprite + submodules
+      # ------------------------------------------------------------
+      - name: Verify OpenSSL DLL
+        shell: pwsh
+        run: |
+          $target = "C:\Program Files\OpenSSL\bin\libcrypto-3-x64.dll"
+
+          if (-not (Test-Path $target)) {
+            throw "DLL check: $target does not exist"
+          }
+
+      - name: Get latest Aseprite release
+        id: version
+        shell: bash
+        run: |
+          VERSION=$(curl -s https://api.github.com/repos/aseprite/aseprite/releases/latest | jq -r .tag_name)
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "ASEPRITE_VERSION=$VERSION" >> "$GITHUB_ENV"
+          echo "Latest Aseprite version: $VERSION"
+
+      - name: Checkout
+        shell: bash
+        run: |
+          git clone --recurse-submodules -j8 https://github.com/aseprite/aseprite --branch ${{ steps.version.outputs.version }}
+
+      # ------------------------------------------------------------
+      # 2. Install Ninja
+      # ------------------------------------------------------------
+      - name: Install Ninja
+        uses: aseprite/get-ninja@main
+
+      # ------------------------------------------------------------
+      # 3. Setup MSVC
+      # ------------------------------------------------------------
+      - name: Setup MSVC
+        uses: TheMrMilchmann/setup-msvc-dev@v4
+        with:
+          arch: x64
+
+      # ------------------------------------------------------------
+      # 4. Download Skia used by Aseprite
+      # ------------------------------------------------------------
+      - name: Install Skia
+        working-directory: aseprite
+        shell: bash
+        run: |
+          set -e
+
+          this_dir=$(cygpath "${{ github.workspace }}/aseprite")
+          skia_url=$(source "$this_dir/laf/misc/skia-url.sh" | xargs)
+
+          echo "Skia URL:"
+          echo "$skia_url"
+
+          skia_file=$(basename "$skia_url")
+
+          echo "Downloading:"
+          echo "$skia_file"
+
+          curl --ssl-revoke-best-effort -L \
+            -o "$skia_file" \
+            "$skia_url"
+
+          echo "Extracting Skia..."
+          unzip "$skia_file" -d skia
+          echo "Skia installed."
+
+      # ------------------------------------------------------------
+      # 5. Configure CMake
+      # ------------------------------------------------------------
+      - name: Configure CMake
+        working-directory: aseprite
+        shell: bash
+        run: |
+          set -e
+
+          export enable_ccache=off
+          export laf_backend=skia
+          export enable_scripting=on
+          export skia_arch=x64
+
+          cmake -S . -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+            -DENABLE_TESTS=OFF \
+            -DENABLE_SCRIPTING=$enable_scripting \
+            -DENABLE_CCACHE=$enable_ccache \
+            -DLAF_BACKEND=$laf_backend \
+            -DSKIA_DIR=$(realpath skia) \
+            -DSKIA_LIBRARY_DIR=$(realpath skia/out/Release-$skia_arch)
+
+      # ------------------------------------------------------------
+      # 6. Compile Aseprite
+      # ------------------------------------------------------------
+      - name: Build Aseprite
+        working-directory: aseprite
+        shell: bash
+        run: |
+          cd build && ninja
+
+      # ------------------------------------------------------------
+      # 7. Prepare package
+      # ------------------------------------------------------------
+      - name: Clean Up Build folder
+        working-directory: aseprite/build/bin
+        shell: bash
+        run: |
+          find . -mindepth 1 ! \( \
+            -name 'aseprite' \
+            -o -name 'aseprite.exe' \
+            -o -name 'data' \
+            -prune \
+            -o -name 'Aseprite.app' \
+            -prune \
+          \) -exec rm -rf {} +
+
+      - name: Make portable zip
+        working-directory: aseprite/build/bin
+        run: |
+          echo '# This file is here so Aseprite behaves as a portable program' > aseprite.ini
+
+      - name: Copy OpenSSL DLL
+        shell: pwsh
+        run: |
+          Copy-Item `
+            "C:\Program Files\OpenSSL\bin\libcrypto-3-x64.dll" `
+            "aseprite/build/bin/libcrypto-3-x64.dll"
+
+      # ------------------------------------------------------------
+      # 8. Package Aseprite
+      # ------------------------------------------------------------
+      - name: Package Aseprite
+        working-directory: aseprite/build/bin
+        shell: pwsh
+        run: |
+          7z -t7z a Aseprite-${{ steps.version.outputs.version }}-Windows-x64.7z *
+
+      # ------------------------------------------------------------
+      # 9. Upload package
+      # ------------------------------------------------------------
+      - name: Upload Aseprite
+        uses: actions/upload-artifact@v6
+        with:
+          name: Aseprite-${{ steps.version.outputs.version }}-release
+          path: aseprite/build/bin/Aseprite-${{ steps.version.outputs.version }}-Windows-x64.7z
+          retention-days: 3
+          if-no-files-found: error
+          compression-level: 0
+
