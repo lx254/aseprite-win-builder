@@ -13,15 +13,6 @@ jobs:
       # ------------------------------------------------------------
       # 1. Checkout Aseprite + submodules
       # ------------------------------------------------------------
-      - name: Verify OpenSSL DLL
-        shell: pwsh
-        run: |
-          $target = "C:\Program Files\OpenSSL\bin\libcrypto-3-x64.dll"
-
-          if (-not (Test-Path $target)) {
-            throw "DLL check: $target does not exist"
-          }
-
       - name: Get latest Aseprite release
         id: version
         shell: bash
