@@ -122,14 +122,6 @@ jobs:
         working-directory: aseprite/build/bin
         run: |
           echo '# This file is here so Aseprite behaves as a portable program' > aseprite.ini
-
-      - name: Copy OpenSSL DLL
-        shell: pwsh
-        run: |
-          Copy-Item `
-            "C:\Program Files\OpenSSL\bin\libcrypto-3-x64.dll" `
-            "aseprite/build/bin/libcrypto-3-x64.dll"
-
       # ------------------------------------------------------------
       # 8. Package Aseprite
       # ------------------------------------------------------------
